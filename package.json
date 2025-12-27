@@ -33,7 +33,11 @@
     "dist",
     "src",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "rollup.config.js",
+    "tsconfig.json",
+    "tsconfig.build.json",
+    "husky-setup.js"
   ],
   "scripts": {
     "prepare": "node husky-setup.js",
