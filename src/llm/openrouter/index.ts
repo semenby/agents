@@ -1,7 +1,10 @@
 import { ChatOpenAI } from '@/llm/openai';
 import { ChatGenerationChunk } from '@langchain/core/outputs';
 import { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager';
-import { AIMessageChunk as AIMessageChunkClass } from '@langchain/core/messages';
+import {
+  AIMessage,
+  AIMessageChunk as AIMessageChunkClass,
+} from '@langchain/core/messages';
 import type {
   FunctionMessageChunk,
   SystemMessageChunk,
@@ -77,7 +80,62 @@ export class ChatOpenRouter extends ChatOpenAI {
       messageChunk.additional_kwargs.reasoning_details =
         delta.reasoning_details;
     }
+    // Handle images from OpenRouter image generation models
+    if (delta.images != null && Array.isArray(delta.images)) {
+      messageChunk.additional_kwargs.images = delta.images;
+    }
     return messageChunk;
+  }
+
+  /**
+   * Override to handle OpenRouter's images field in non-streaming responses
+   */
+  protected override _convertOpenAIChatCompletionMessageToBaseMessage(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    message: any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rawResponse: any
+  ): AIMessage {
+    // First call parent to get the base message
+    const baseMessage = super._convertOpenAIChatCompletionMessageToBaseMessage(
+      message,
+      rawResponse
+    );
+
+    // Check if message has images (OpenRouter image generation)
+    if (
+      message.images != null &&
+      Array.isArray(message.images) &&
+      message.images.length > 0
+    ) {
+      // Add images to additional_kwargs
+      baseMessage.additional_kwargs.images = message.images;
+
+      // Convert content to array format with text and images
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const contentParts: any[] = [];
+      if (typeof baseMessage.content === 'string' && baseMessage.content) {
+        contentParts.push({
+          type: 'text',
+          text: baseMessage.content,
+        });
+      }
+      for (const image of message.images) {
+        if (image.type === 'image_url' && image.image_url?.url) {
+          contentParts.push({
+            type: 'image_url',
+            image_url: {
+              url: image.image_url.url,
+            },
+          });
+        }
+      }
+      if (contentParts.length > 0) {
+        baseMessage.content = contentParts;
+      }
+    }
+
+    return baseMessage;
   }
 
   async *_streamResponseChunks2(
@@ -108,6 +166,9 @@ export class ChatOpenRouter extends ChatOpenAI {
     const reasoningTextByIndex: Map<number, Record<string, any>> = new Map();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const reasoningEncryptedById: Map<string, Record<string, any>> = new Map();
+    // Store accumulated images from streaming (OpenRouter image generation)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let accumulatedImages: any[] = [];
 
     for await (const data of streamIterable) {
       const choice = data.choices[0] as
@@ -128,6 +189,10 @@ export class ChatOpenRouter extends ChatOpenAI {
       // Accumulate reasoning_details from each delta
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deltaAny = delta as Record<string, any>;
+      // Accumulate images from delta if present (OpenRouter image generation)
+      if (deltaAny.images != null && Array.isArray(deltaAny.images)) {
+        accumulatedImages = accumulatedImages.concat(deltaAny.images);
+      }
       // Extract current chunk's reasoning text for streaming (before accumulation)
       let currentChunkReasoningText = '';
       if (
@@ -192,6 +257,32 @@ export class ChatOpenRouter extends ChatOpenAI {
         if (finalReasoningDetails.length > 0) {
           chunk.additional_kwargs.reasoning_details = finalReasoningDetails;
         }
+        // Add accumulated images to the final chunk
+        if (accumulatedImages.length > 0) {
+          chunk.additional_kwargs.images = accumulatedImages;
+          // Convert content to array format with text and images
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const contentParts: any[] = [];
+          if (typeof chunk.content === 'string' && chunk.content) {
+            contentParts.push({
+              type: 'text',
+              text: chunk.content,
+            });
+          }
+          for (const image of accumulatedImages) {
+            if (image.type === 'image_url' && image.image_url?.url) {
+              contentParts.push({
+                type: 'image_url',
+                image_url: {
+                  url: image.image_url.url,
+                },
+              });
+            }
+          }
+          if (contentParts.length > 0) {
+            chunk.content = contentParts;
+          }
+        }
       } else {
         // Clear reasoning_details from intermediate chunks to prevent concatenation issues
         delete chunk.additional_kwargs.reasoning_details;
@@ -202,10 +293,11 @@ export class ChatOpenRouter extends ChatOpenAI {
         prompt: options.promptIndex ?? 0,
         completion: choice.index ?? 0,
       };
-      if (typeof chunk.content !== 'string') {
+      // Allow both string and array content (for images)
+      if (typeof chunk.content !== 'string' && !Array.isArray(chunk.content)) {
         // eslint-disable-next-line no-console
         console.log(
-          '[WARNING]: Received non-string content from OpenAI. This is currently not supported.'
+          '[WARNING]: Received non-string/non-array content from OpenAI. This is currently not supported.'
         );
         continue;
       }
@@ -220,9 +312,22 @@ export class ChatOpenRouter extends ChatOpenAI {
       if (this.logprobs == true) {
         generationInfo.logprobs = choice.logprobs;
       }
+      // Extract text content for the text field
+      let textContent = '';
+      if (typeof chunk.content === 'string') {
+        textContent = chunk.content;
+      } else if (Array.isArray(chunk.content)) {
+        for (const part of chunk.content) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          if ((part as any).type === 'text' && (part as any).text) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            textContent += (part as any).text;
+          }
+        }
+      }
       const generationChunk = new ChatGenerationChunk({
         message: chunk,
-        text: chunk.content,
+        text: textContent,
         generationInfo,
       });
       yield generationChunk;
@@ -232,7 +337,7 @@ export class ChatOpenRouter extends ChatOpenAI {
         );
       }
       await runManager?.handleLLMNewToken(
-        generationChunk.text || '',
+        textContent,
         newTokenIndices,
         undefined,
         undefined,
