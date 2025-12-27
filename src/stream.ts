@@ -514,13 +514,13 @@ export function createContentAggregator(): t.ContentAggregatorResult {
       partType === ContentTypes.IMAGE_URL &&
       'image_url' in contentPart
     ) {
-      const currentContent = contentParts[index] as {
-        type: 'image_url';
-        image_url: string;
-      };
       contentParts[index] = {
-        ...currentContent,
-      };
+        type: ContentTypes.IMAGE_URL,
+        image_url: contentPart.image_url,
+        // Preserve file_id for generated images
+        ...('file_id' in contentPart &&
+          contentPart.file_id && { file_id: contentPart.file_id }),
+      } as t.MessageContentComplex;
     } else if (
       partType === ContentTypes.TOOL_CALL &&
       'tool_call' in contentPart
@@ -659,11 +659,12 @@ export function createContentAggregator(): t.ContentAggregatorResult {
       }
 
       if (messageDelta.delta.content) {
-        const contentPart = Array.isArray(messageDelta.delta.content)
-          ? messageDelta.delta.content[0]
-          : messageDelta.delta.content;
-
-        updateContent(runStep.index, contentPart);
+        const contents = Array.isArray(messageDelta.delta.content)
+          ? messageDelta.delta.content
+          : [messageDelta.delta.content];
+        contents.forEach((contentPart, i) => {
+          updateContent(runStep.index + i, contentPart);
+        });
       }
     } else if (
       event === GraphEvents.ON_AGENT_UPDATE &&
