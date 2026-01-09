@@ -1,6 +1,26 @@
 // src/tools/ToolSearch.ts
 import { z } from 'zod';
+import * as okapibm25Module from 'okapibm25';
 import { config } from 'dotenv';
+
+type BM25Fn = (
+  documents: string[],
+  keywords: string[],
+  constants?: { k1?: number; b?: number }
+) => number[];
+
+function getBM25Function(): BM25Fn {
+  const mod = okapibm25Module as unknown as {
+    default: BM25Fn | { default: BM25Fn } | undefined;
+  };
+  if (typeof mod === 'function') return mod;
+  if (typeof mod.default === 'function') return mod.default;
+  if (mod.default != null && typeof mod.default.default === 'function')
+    return mod.default.default;
+  throw new Error('Could not resolve BM25 function from okapibm25 module');
+}
+
+const BM25 = getBM25Function();
 import fetch, { RequestInit } from 'node-fetch';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { getEnvironmentVariable } from '@langchain/core/utils/env';
@@ -282,13 +302,102 @@ function simplifyParametersForSearch(
 }
 
 /**
- * Performs safe local substring search without regex.
- * Uses case-insensitive String.includes() for complete safety against ReDoS.
+ * Tokenizes a string into lowercase words for BM25.
+ * Splits on underscores and non-alphanumeric characters for consistent matching.
+ * @param text - The text to tokenize
+ * @returns Array of lowercase tokens
+ */
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ' ')
+    .split(/\s+/)
+    .filter((token) => token.length > 0);
+}
+
+/**
+ * Creates a searchable document string from tool metadata.
+ * @param tool - The tool metadata
+ * @param fields - Which fields to include
+ * @returns Combined document string for BM25
+ */
+function createToolDocument(tool: t.ToolMetadata, fields: string[]): string {
+  const parts: string[] = [];
+
+  if (fields.includes('name')) {
+    const baseName = tool.name.replace(/_/g, ' ');
+    parts.push(baseName, baseName);
+  }
+
+  if (fields.includes('description') && tool.description) {
+    parts.push(tool.description);
+  }
+
+  if (fields.includes('parameters') && tool.parameters?.properties) {
+    const paramNames = Object.keys(tool.parameters.properties).join(' ');
+    parts.push(paramNames);
+  }
+
+  return parts.join(' ');
+}
+
+/**
+ * Determines which field had the best match for a query.
+ * @param tool - The tool to check
+ * @param queryTokens - Tokenized query
+ * @param fields - Fields to check
+ * @returns The matched field and a snippet
+ */
+function findMatchedField(
+  tool: t.ToolMetadata,
+  queryTokens: string[],
+  fields: string[]
+): { field: string; snippet: string } {
+  if (fields.includes('name')) {
+    const nameLower = tool.name.toLowerCase();
+    for (const token of queryTokens) {
+      if (nameLower.includes(token)) {
+        return { field: 'name', snippet: tool.name };
+      }
+    }
+  }
+
+  if (fields.includes('description') && tool.description) {
+    const descLower = tool.description.toLowerCase();
+    for (const token of queryTokens) {
+      if (descLower.includes(token)) {
+        return {
+          field: 'description',
+          snippet: tool.description.substring(0, 100),
+        };
+      }
+    }
+  }
+
+  if (fields.includes('parameters') && tool.parameters?.properties) {
+    const paramNames = Object.keys(tool.parameters.properties);
+    const paramLower = paramNames.join(' ').toLowerCase();
+    for (const token of queryTokens) {
+      if (paramLower.includes(token)) {
+        return { field: 'parameters', snippet: paramNames.join(', ') };
+      }
+    }
+  }
+
+  const fallbackSnippet = tool.description
+    ? tool.description.substring(0, 100)
+    : tool.name;
+  return { field: 'unknown', snippet: fallbackSnippet };
+}
+
+/**
+ * Performs BM25-based search for better relevance ranking.
+ * Uses Okapi BM25 algorithm for term frequency and document length normalization.
  * @param tools - Array of tool metadata to search
- * @param query - The search term (treated as literal substring)
+ * @param query - The search query
  * @param fields - Which fields to search
  * @param maxResults - Maximum results to return
- * @returns Search response with matching tools
+ * @returns Search response with matching tools ranked by BM25 score
  */
 function performLocalSearch(
   tools: t.ToolMetadata[],
@@ -296,50 +405,52 @@ function performLocalSearch(
   fields: string[],
   maxResults: number
 ): t.ToolSearchResponse {
-  const lowerQuery = query.toLowerCase();
+  if (tools.length === 0 || !query.trim()) {
+    return {
+      tool_references: [],
+      total_tools_searched: tools.length,
+      pattern_used: query,
+    };
+  }
+
+  const documents = tools.map((tool) => createToolDocument(tool, fields));
+  const queryTokens = tokenize(query);
+
+  if (queryTokens.length === 0) {
+    return {
+      tool_references: [],
+      total_tools_searched: tools.length,
+      pattern_used: query,
+    };
+  }
+
+  const scores = BM25(documents, queryTokens, { k1: 1.5, b: 0.75 }) as number[];
+
+  const maxScore = Math.max(...scores.filter((s) => s > 0), 1);
+  const queryLower = query.toLowerCase().trim();
+
   const results: t.ToolSearchResult[] = [];
+  for (let i = 0; i < tools.length; i++) {
+    if (scores[i] > 0) {
+      const { field, snippet } = findMatchedField(
+        tools[i],
+        queryTokens,
+        fields
+      );
+      let normalizedScore = Math.min(scores[i] / maxScore, 1.0);
 
-  for (const tool of tools) {
-    let bestScore = 0;
-    let matchedField = '';
-    let snippet = '';
-
-    if (fields.includes('name')) {
-      const lowerName = tool.name.toLowerCase();
-      if (lowerName.includes(lowerQuery)) {
-        const isExactMatch = lowerName === lowerQuery;
-        const startsWithQuery = lowerName.startsWith(lowerQuery);
-        bestScore = isExactMatch ? 1.0 : startsWithQuery ? 0.95 : 0.85;
-        matchedField = 'name';
-        snippet = tool.name;
+      // Boost score for exact base name match
+      const baseName = getBaseToolName(tools[i].name).toLowerCase();
+      if (baseName === queryLower) {
+        normalizedScore = 1.0;
+      } else if (baseName.startsWith(queryLower)) {
+        normalizedScore = Math.max(normalizedScore, 0.95);
       }
-    }
 
-    if (fields.includes('description') && tool.description) {
-      const lowerDesc = tool.description.toLowerCase();
-      if (lowerDesc.includes(lowerQuery) && bestScore === 0) {
-        bestScore = 0.7;
-        matchedField = 'description';
-        snippet = tool.description.substring(0, 100);
-      }
-    }
-
-    if (fields.includes('parameters') && tool.parameters?.properties) {
-      const paramNames = Object.keys(tool.parameters.properties)
-        .join(' ')
-        .toLowerCase();
-      if (paramNames.includes(lowerQuery) && bestScore === 0) {
-        bestScore = 0.55;
-        matchedField = 'parameters';
-        snippet = Object.keys(tool.parameters.properties).join(' ');
-      }
-    }
-
-    if (bestScore > 0) {
       results.push({
-        tool_name: tool.name,
-        match_score: bestScore,
-        matched_field: matchedField,
+        tool_name: tools[i].name,
+        match_score: normalizedScore,
+        matched_field: field,
         snippet,
       });
     }
@@ -683,7 +794,7 @@ ${deferredToolsListing}`
   const description =
     mode === 'local'
       ? `
-Searches deferred tools by name/description. Case-insensitive substring matching.
+Searches deferred tools using BM25 ranking. Multi-word queries supported.
 ${mcpNote}${toolsListSection}
 `.trim()
       : `
