@@ -4,7 +4,6 @@ import type * as t from '@/types';
 declare const ProgrammaticToolCallingSchema: z.ZodObject<
   {
     code: z.ZodString;
-    session_id: z.ZodOptional<z.ZodString>;
     timeout: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
   },
   'strip',
@@ -12,12 +11,10 @@ declare const ProgrammaticToolCallingSchema: z.ZodObject<
   {
     code: string;
     timeout: number;
-    session_id?: string | undefined;
   },
   {
     code: string;
     timeout?: number | undefined;
-    session_id?: string | undefined;
   }
 >;
 /**

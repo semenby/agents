@@ -9,7 +9,6 @@ declare const CodeExecutionToolSchema: z.ZodObject<
       ['py', 'js', 'ts', 'c', 'cpp', 'java', 'php', 'rs', 'go', 'd', 'f90', 'r']
     >;
     code: z.ZodString;
-    session_id: z.ZodOptional<z.ZodString>;
     args: z.ZodOptional<z.ZodArray<z.ZodString, 'many'>>;
   },
   'strip',
@@ -30,7 +29,6 @@ declare const CodeExecutionToolSchema: z.ZodObject<
       | 'go'
       | 'f90';
     args?: string[] | undefined;
-    session_id?: string | undefined;
   },
   {
     code: string;
@@ -48,7 +46,6 @@ declare const CodeExecutionToolSchema: z.ZodObject<
       | 'go'
       | 'f90';
     args?: string[] | undefined;
-    session_id?: string | undefined;
   }
 >;
 declare function createCodeExecutionTool(

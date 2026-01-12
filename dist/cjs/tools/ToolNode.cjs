@@ -27,7 +27,9 @@ class ToolNode extends run.RunnableCallable {
     toolRegistry;
     /** Cached programmatic tools (computed once on first PTC call) */
     programmaticCache;
-    constructor({ tools, toolMap, name, tags, errorHandler, toolCallStepIds, handleToolErrors, loadRuntimeTools, toolRegistry, }) {
+    /** Reference to Graph's sessions map for automatic session injection */
+    sessions;
+    constructor({ tools, toolMap, name, tags, errorHandler, toolCallStepIds, handleToolErrors, loadRuntimeTools, toolRegistry, sessions, }) {
         super({ name, tags, func: (input, config) => this.run(input, config) });
         this.toolMap = toolMap ?? new Map(tools.map((tool) => [tool.name, tool]));
         this.toolCallStepIds = toolCallStepIds;
@@ -36,6 +38,7 @@ class ToolNode extends run.RunnableCallable {
         this.errorHandler = errorHandler;
         this.toolUsageCount = new Map();
         this.toolRegistry = toolRegistry;
+        this.sessions = sessions;
     }
     /**
      * Returns cached programmatic tools, computing once on first access.
@@ -101,6 +104,30 @@ class ToolNode extends run.RunnableCallable {
                     ...invokeParams,
                     toolRegistry: this.toolRegistry,
                 };
+            }
+            /**
+             * Inject session context for code execution tools when available.
+             * Both session_id and _injected_files are injected directly to invokeParams
+             * (not inside args) so they bypass Zod schema validation and reach config.toolCall.
+             * This avoids /files endpoint race conditions.
+             */
+            if (call.name === _enum.Constants.EXECUTE_CODE ||
+                call.name === _enum.Constants.PROGRAMMATIC_TOOL_CALLING) {
+                const codeSession = this.sessions?.get(_enum.Constants.EXECUTE_CODE);
+                if (codeSession?.session_id != null && codeSession.files.length > 0) {
+                    /** Convert tracked files to CodeEnvFile format for the API */
+                    const fileRefs = codeSession.files.map((file) => ({
+                        session_id: codeSession.session_id,
+                        id: file.id,
+                        name: file.name,
+                    }));
+                    /** Inject session_id and files directly - bypasses Zod, reaches config.toolCall */
+                    invokeParams = {
+                        ...invokeParams,
+                        session_id: codeSession.session_id,
+                        _injected_files: fileRefs,
+                    };
+                }
             }
             const output = await tool.invoke(invokeParams, config);
             if ((messages.isBaseMessage(output) && output._getType() === 'tool') ||

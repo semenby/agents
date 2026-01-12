@@ -76,6 +76,12 @@ export declare abstract class Graph<
   /** Set of invoked tool call IDs from non-message run steps completed mid-run, if any */
   invokedToolIds?: Set<string>;
   handlerRegistry: HandlerRegistry | undefined;
+  /**
+   * Tool session contexts for automatic state persistence across tool invocations.
+   * Keyed by tool name (e.g., Constants.EXECUTE_CODE).
+   * Currently supports code execution session tracking (session_id, files).
+   */
+  sessions: t.ToolSessionMap;
 }
 export declare class StandardGraph extends Graph<
   t.BaseGraphState,

@@ -16,6 +16,8 @@ export declare class ToolNode<T = any> extends RunnableCallable<T, T> {
   private toolRegistry?;
   /** Cached programmatic tools (computed once on first PTC call) */
   private programmaticCache?;
+  /** Reference to Graph's sessions map for automatic session injection */
+  private sessions?;
   constructor({
     tools,
     toolMap,
@@ -26,6 +28,7 @@ export declare class ToolNode<T = any> extends RunnableCallable<T, T> {
     handleToolErrors,
     loadRuntimeTools,
     toolRegistry,
+    sessions,
   }: t.ToolNodeConstructorParams);
   /**
    * Returns cached programmatic tools, computing once on first access.

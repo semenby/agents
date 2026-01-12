@@ -40,6 +40,12 @@ class Graph {
     /** Set of invoked tool call IDs from non-message run steps completed mid-run, if any */
     invokedToolIds;
     handlerRegistry;
+    /**
+     * Tool session contexts for automatic state persistence across tool invocations.
+     * Keyed by tool name (e.g., Constants.EXECUTE_CODE).
+     * Currently supports code execution session tracking (session_id, files).
+     */
+    sessions = new Map();
 }
 class StandardGraph extends Graph {
     overrideModel;
@@ -272,6 +278,7 @@ class StandardGraph extends Graph {
             toolCallStepIds: this.toolCallStepIds,
             errorHandler: (data, metadata) => StandardGraph.handleToolCallErrorStatic(this, data, metadata),
             toolRegistry: agentContext?.toolRegistry,
+            sessions: this.sessions,
         });
     }
     initializeModel({ provider, tools, clientOptions, }) {
@@ -704,6 +711,33 @@ class StandardGraph extends Graph {
         const runStep = this.getRunStep(stepId);
         if (!runStep) {
             throw new Error(`No run step found for stepId ${stepId}`);
+        }
+        /**
+         * Extract and store code execution session context from artifacts.
+         * Only update session_id when files are generated - this ensures we don't
+         * lose the original session that contains the files.
+         */
+        const toolName = output.name;
+        if (toolName === _enum.Constants.EXECUTE_CODE ||
+            toolName === _enum.Constants.PROGRAMMATIC_TOOL_CALLING) {
+            const artifact = output.artifact;
+            const newFiles = artifact?.files ?? [];
+            const hasNewFiles = newFiles.length > 0;
+            if (hasNewFiles &&
+                artifact?.session_id != null &&
+                artifact.session_id !== '') {
+                /**
+                 * Files were generated - update session with the new session_id.
+                 * The new session_id is the one that contains these files.
+                 */
+                const existingSession = this.sessions.get(_enum.Constants.EXECUTE_CODE);
+                const existingFiles = existingSession?.files ?? [];
+                this.sessions.set(_enum.Constants.EXECUTE_CODE, {
+                    session_id: artifact.session_id,
+                    files: [...existingFiles, ...newFiles],
+                    lastUpdated: Date.now(),
+                });
+            }
         }
         const dispatchedOutput = typeof output.content === 'string'
             ? output.content
