@@ -18,6 +18,7 @@ export { countNestedGroups, createToolSearch, escapeRegexSpecialChars, extractMc
 export { handleServerToolResult, handleToolCallChunks, handleToolCalls, toolResultTypes } from './tools/handlers.mjs';
 export { createSearchTool } from './tools/search/tool.mjs';
 export { Callback, CommonEvents, Constants, ContentTypes, EnvVar, GraphEvents, GraphNodeActions, GraphNodeKeys, Providers, StepTypes, TitleMethod, ToolCallTypes } from './common/enum.mjs';
+export { classifyError, shouldTriggerFallback } from './utils/errorClassification.mjs';
 export { joinKeys, resetIfNotEmpty } from './utils/graph.mjs';
 export { isGoogleLike, isOpenAILike } from './utils/llm.mjs';
 export { isPresent, unescapeObject } from './utils/misc.mjs';

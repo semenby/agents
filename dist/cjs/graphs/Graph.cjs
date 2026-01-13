@@ -13,6 +13,7 @@ var format = require('../messages/format.cjs');
 var cache = require('../messages/cache.cjs');
 var content = require('../messages/content.cjs');
 var tools = require('../messages/tools.cjs');
+var errorClassification = require('../utils/errorClassification.cjs');
 var graph = require('../utils/graph.cjs');
 var llm = require('../utils/llm.cjs');
 var run = require('../utils/run.cjs');
@@ -527,19 +528,26 @@ class StandardGraph extends Graph {
                 }, config);
             }
             catch (primaryError) {
+                const primaryClassified = errorClassification.classifyError(primaryError);
+                const fallbackOn = agentContext.clientOptions?.fallbackOn;
+                // Check if error type should trigger fallback
+                if (fallbacks.length === 0 ||
+                    !errorClassification.shouldTriggerFallback(primaryClassified.type, fallbackOn)) {
+                    throw primaryError;
+                }
                 let lastError = primaryError;
                 for (const fb of fallbacks) {
                     try {
-                        let model = this.getNewModel({
+                        let fbModel = this.getNewModel({
                             provider: fb.provider,
                             clientOptions: fb.clientOptions,
                         });
                         const bindableTools = agentContext.tools;
-                        model = (!bindableTools || bindableTools.length === 0
-                            ? model
-                            : model.bindTools(bindableTools));
+                        fbModel = (!bindableTools || bindableTools.length === 0
+                            ? fbModel
+                            : fbModel.bindTools(bindableTools));
                         result = await this.attemptInvoke({
-                            currentModel: model,
+                            currentModel: fbModel,
                             finalMessages,
                             provider: fb.provider,
                             tools: agentContext.tools,
@@ -548,6 +556,16 @@ class StandardGraph extends Graph {
                         break;
                     }
                     catch (e) {
+                        const classified = errorClassification.classifyError(e);
+                        // If error is not retryable, stop trying
+                        if (!classified.retryable) {
+                            lastError = e;
+                            break;
+                        }
+                        // If error type shouldn't trigger fallback, throw it
+                        if (!errorClassification.shouldTriggerFallback(classified.type, fallbackOn)) {
+                            throw e;
+                        }
                         lastError = e;
                         continue;
                     }

@@ -55,6 +55,8 @@ import {
   isGoogleLike,
   joinKeys,
   sleep,
+  classifyError,
+  shouldTriggerFallback,
 } from '@/utils';
 import { getChatModelClass, manualToolStreamProviders } from '@/llm/providers';
 import { ToolNode as CustomToolNode, toolsCondition } from '@/tools/ToolNode';
@@ -822,22 +824,37 @@ export class StandardGraph extends Graph<t.BaseGraphState, t.GraphNode> {
           config
         );
       } catch (primaryError) {
+        const primaryClassified = classifyError(primaryError);
+        const fallbackOn = (
+          agentContext.clientOptions as t.LLMConfig | undefined
+        )?.fallbackOn;
+
+        // Check if error type should trigger fallback
+        if (
+          fallbacks.length === 0 ||
+          !shouldTriggerFallback(primaryClassified.type, fallbackOn)
+        ) {
+          throw primaryError;
+        }
+
         let lastError: unknown = primaryError;
+
         for (const fb of fallbacks) {
           try {
-            let model = this.getNewModel({
+            let fbModel = this.getNewModel({
               provider: fb.provider,
               clientOptions: fb.clientOptions,
             });
             const bindableTools = agentContext.tools;
-            model = (
+            fbModel = (
               !bindableTools || bindableTools.length === 0
-                ? model
-                : model.bindTools(bindableTools)
+                ? fbModel
+                : fbModel.bindTools(bindableTools)
             ) as t.ChatModelInstance;
+
             result = await this.attemptInvoke(
               {
-                currentModel: model,
+                currentModel: fbModel,
                 finalMessages,
                 provider: fb.provider,
                 tools: agentContext.tools,
@@ -847,10 +864,24 @@ export class StandardGraph extends Graph<t.BaseGraphState, t.GraphNode> {
             lastError = undefined;
             break;
           } catch (e) {
+            const classified = classifyError(e);
+
+            // If error is not retryable, stop trying
+            if (!classified.retryable) {
+              lastError = e;
+              break;
+            }
+
+            // If error type shouldn't trigger fallback, throw it
+            if (!shouldTriggerFallback(classified.type, fallbackOn)) {
+              throw e;
+            }
+
             lastError = e;
             continue;
           }
         }
+
         if (lastError !== undefined) {
           throw lastError;
         }

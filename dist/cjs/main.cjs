@@ -20,6 +20,7 @@ var ToolSearch = require('./tools/ToolSearch.cjs');
 var handlers = require('./tools/handlers.cjs');
 var tool = require('./tools/search/tool.cjs');
 var _enum = require('./common/enum.cjs');
+var errorClassification = require('./utils/errorClassification.cjs');
 var graph = require('./utils/graph.cjs');
 var llm = require('./utils/llm.cjs');
 var misc = require('./utils/misc.cjs');
@@ -155,6 +156,8 @@ Object.defineProperty(exports, "ToolCallTypes", {
 	enumerable: true,
 	get: function () { return _enum.ToolCallTypes; }
 });
+exports.classifyError = errorClassification.classifyError;
+exports.shouldTriggerFallback = errorClassification.shouldTriggerFallback;
 exports.joinKeys = graph.joinKeys;
 exports.resetIfNotEmpty = graph.resetIfNotEmpty;
 exports.isGoogleLike = llm.isGoogleLike;

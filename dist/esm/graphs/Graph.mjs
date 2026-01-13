@@ -11,6 +11,7 @@ import { ensureThinkingBlockInMessages } from '../messages/format.mjs';
 import { addCacheControl, addBedrockCacheControl } from '../messages/cache.mjs';
 import { formatContentStrings } from '../messages/content.mjs';
 import { extractToolDiscoveries } from '../messages/tools.mjs';
+import { classifyError, shouldTriggerFallback } from '../utils/errorClassification.mjs';
 import { resetIfNotEmpty, joinKeys } from '../utils/graph.mjs';
 import { isOpenAILike, isGoogleLike } from '../utils/llm.mjs';
 import { sleep } from '../utils/run.mjs';
@@ -525,19 +526,26 @@ class StandardGraph extends Graph {
                 }, config);
             }
             catch (primaryError) {
+                const primaryClassified = classifyError(primaryError);
+                const fallbackOn = agentContext.clientOptions?.fallbackOn;
+                // Check if error type should trigger fallback
+                if (fallbacks.length === 0 ||
+                    !shouldTriggerFallback(primaryClassified.type, fallbackOn)) {
+                    throw primaryError;
+                }
                 let lastError = primaryError;
                 for (const fb of fallbacks) {
                     try {
-                        let model = this.getNewModel({
+                        let fbModel = this.getNewModel({
                             provider: fb.provider,
                             clientOptions: fb.clientOptions,
                         });
                         const bindableTools = agentContext.tools;
-                        model = (!bindableTools || bindableTools.length === 0
-                            ? model
-                            : model.bindTools(bindableTools));
+                        fbModel = (!bindableTools || bindableTools.length === 0
+                            ? fbModel
+                            : fbModel.bindTools(bindableTools));
                         result = await this.attemptInvoke({
-                            currentModel: model,
+                            currentModel: fbModel,
                             finalMessages,
                             provider: fb.provider,
                             tools: agentContext.tools,
@@ -546,6 +554,16 @@ class StandardGraph extends Graph {
                         break;
                     }
                     catch (e) {
+                        const classified = classifyError(e);
+                        // If error is not retryable, stop trying
+                        if (!classified.retryable) {
+                            lastError = e;
+                            break;
+                        }
+                        // If error type shouldn't trigger fallback, throw it
+                        if (!shouldTriggerFallback(classified.type, fallbackOn)) {
+                            throw e;
+                        }
                         lastError = e;
                         continue;
                     }

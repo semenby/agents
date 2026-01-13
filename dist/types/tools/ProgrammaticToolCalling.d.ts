@@ -9,8 +9,8 @@ declare const ProgrammaticToolCallingSchema: z.ZodObject<
   'strip',
   z.ZodTypeAny,
   {
-    code: string;
     timeout: number;
+    code: string;
   },
   {
     code: string;

@@ -1,5 +1,6 @@
 // src/types/llm.ts
 import { ChatMistralAI } from '@langchain/mistralai';
+import type { ErrorClassification } from './errors';
 import type {
   BindToolsInput,
   BaseChatModelParams,
@@ -94,6 +95,8 @@ export type LLMConfig = SharedLLMConfig &
   ClientOptions & {
     /** Optional provider fallbacks in order of attempt */
     fallbacks?: Array<{ provider: Providers; clientOptions?: ClientOptions }>;
+    /** Error types that should trigger fallback (default: timeout, rateLimit, serverError, unavailable) */
+    fallbackOn?: ErrorClassification[];
   };
 
 export type ProviderOptionsMap = {
