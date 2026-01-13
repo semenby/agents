@@ -861,6 +861,15 @@ export class StandardGraph extends Graph<t.BaseGraphState, t.GraphNode> {
               },
               config
             );
+            // Update agentContext with fallback provider/model for billing tracking
+            agentContext.provider = fb.provider;
+            const fallbackModelName = (
+              fb.clientOptions as Record<string, unknown>
+            ).model;
+            if (fallbackModelName) {
+              (agentContext.clientOptions as Record<string, unknown>).model =
+                fallbackModelName;
+            }
             lastError = undefined;
             break;
           } catch (e) {

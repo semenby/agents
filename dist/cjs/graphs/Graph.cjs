@@ -552,6 +552,13 @@ class StandardGraph extends Graph {
                             provider: fb.provider,
                             tools: agentContext.tools,
                         }, config);
+                        // Update agentContext with fallback provider/model for billing tracking
+                        agentContext.provider = fb.provider;
+                        const fallbackModelName = fb.clientOptions?.model;
+                        if (fallbackModelName) {
+                            agentContext.clientOptions.model =
+                                fallbackModelName;
+                        }
                         lastError = undefined;
                         break;
                     }
