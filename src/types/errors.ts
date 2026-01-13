@@ -8,6 +8,7 @@ export type ErrorClassification =
   | 'rateLimit'
   | 'serverError'
   | 'unavailable'
+  | 'notFound'
   | 'badRequest'
   | 'auth'
   | 'unknown';

@@ -45,6 +45,13 @@ const AUTH_PATTERNS = [
   /api.?key/i,
 ];
 
+const NOT_FOUND_PATTERNS = [
+  /404/,
+  /not found/i,
+  /does not exist/i,
+  /model.*disabled/i,
+];
+
 const BAD_REQUEST_PATTERNS = [/400/, /malformed/i, /bad request/i];
 
 /**
@@ -66,6 +73,9 @@ export function classifyError(error: unknown): ClassifiedError {
     if (statusCode === 401 || statusCode === 403) {
       return { type: 'auth', message, retryable: false };
     }
+    if (statusCode === 404) {
+      return { type: 'notFound', message, retryable: true };
+    }
     if (statusCode === 400) {
       return { type: 'badRequest', message, retryable: false };
     }
@@ -83,6 +93,9 @@ export function classifyError(error: unknown): ClassifiedError {
   }
   if (AUTH_PATTERNS.some((p) => p.test(message))) {
     return { type: 'auth', message, retryable: false };
+  }
+  if (NOT_FOUND_PATTERNS.some((p) => p.test(message))) {
+    return { type: 'notFound', message, retryable: true };
   }
   if (BAD_REQUEST_PATTERNS.some((p) => p.test(message))) {
     return { type: 'badRequest', message, retryable: false };
@@ -106,6 +119,7 @@ const DEFAULT_FALLBACK_ON: ErrorClassification[] = [
   'rateLimit',
   'serverError',
   'unavailable',
+  'notFound',
 ];
 
 /**

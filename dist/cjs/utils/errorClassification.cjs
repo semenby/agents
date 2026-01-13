@@ -39,6 +39,12 @@ const AUTH_PATTERNS = [
     /authentication/i,
     /api.?key/i,
 ];
+const NOT_FOUND_PATTERNS = [
+    /404/,
+    /not found/i,
+    /does not exist/i,
+    /model.*disabled/i,
+];
 const BAD_REQUEST_PATTERNS = [/400/, /malformed/i, /bad request/i];
 /**
  * Classifies an error to determine if fallback should be attempted.
@@ -47,8 +53,8 @@ const BAD_REQUEST_PATTERNS = [/400/, /malformed/i, /bad request/i];
  */
 function classifyError(error) {
     const message = error instanceof Error ? error.message : String(error);
-    const statusCode = error?.status ??
-        error?.statusCode;
+    const statusCode = error.status ??
+        error.statusCode;
     // Check status code first (most reliable)
     if (statusCode) {
         if (statusCode === 429) {
@@ -56,6 +62,9 @@ function classifyError(error) {
         }
         if (statusCode === 401 || statusCode === 403) {
             return { type: 'auth', message, retryable: false };
+        }
+        if (statusCode === 404) {
+            return { type: 'notFound', message, retryable: true };
         }
         if (statusCode === 400) {
             return { type: 'badRequest', message, retryable: false };
@@ -73,6 +82,9 @@ function classifyError(error) {
     }
     if (AUTH_PATTERNS.some((p) => p.test(message))) {
         return { type: 'auth', message, retryable: false };
+    }
+    if (NOT_FOUND_PATTERNS.some((p) => p.test(message))) {
+        return { type: 'notFound', message, retryable: true };
     }
     if (BAD_REQUEST_PATTERNS.some((p) => p.test(message))) {
         return { type: 'badRequest', message, retryable: false };
@@ -94,6 +106,7 @@ const DEFAULT_FALLBACK_ON = [
     'rateLimit',
     'serverError',
     'unavailable',
+    'notFound',
 ];
 /**
  * Determines if the error type should trigger a fallback attempt.
