@@ -275,10 +275,7 @@ class AgentContext {
         // Handle Anthropic prompt caching
         if (this.provider === Providers.ANTHROPIC) {
             const anthropicOptions = this.clientOptions;
-            const defaultHeaders = anthropicOptions?.clientOptions?.defaultHeaders;
-            const anthropicBeta = defaultHeaders?.['anthropic-beta'];
-            if (typeof anthropicBeta === 'string' &&
-                anthropicBeta.includes('prompt-caching')) {
+            if (anthropicOptions?.promptCache === true) {
                 finalInstructions = {
                     content: [
                         {

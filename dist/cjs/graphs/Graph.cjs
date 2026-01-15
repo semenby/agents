@@ -252,9 +252,7 @@ class StandardGraph extends Graph {
         if (finalInstructions != null &&
             finalInstructions &&
             provider === _enum.Providers.ANTHROPIC &&
-            (clientOptions.clientOptions
-                ?.defaultHeaders?.['anthropic-beta']?.includes('prompt-caching') ??
-                false)) {
+            clientOptions.promptCache === true) {
             finalInstructions = {
                 content: [
                     {
@@ -472,11 +470,7 @@ class StandardGraph extends Graph {
             }
             if (agentContext.provider === _enum.Providers.ANTHROPIC) {
                 const anthropicOptions = agentContext.clientOptions;
-                const defaultHeaders = anthropicOptions?.clientOptions
-                    ?.defaultHeaders;
-                const anthropicBeta = defaultHeaders?.['anthropic-beta'];
-                if (typeof anthropicBeta === 'string' &&
-                    anthropicBeta.includes('prompt-caching')) {
+                if (anthropicOptions?.promptCache === true) {
                     finalMessages = cache.addCacheControl(finalMessages);
                 }
             }
@@ -554,7 +548,7 @@ class StandardGraph extends Graph {
                         }, config);
                         // Update agentContext with fallback provider/model for billing tracking
                         agentContext.provider = fb.provider;
-                        const fallbackModelName = fb.clientOptions?.model;
+                        const fallbackModelName = fb.clientOptions.model;
                         if (fallbackModelName) {
                             agentContext.clientOptions.model =
                                 fallbackModelName;
@@ -739,8 +733,8 @@ class StandardGraph extends Graph {
         }
         /**
          * Extract and store code execution session context from artifacts.
-         * Only update session_id when files are generated - this ensures we don't
-         * lose the original session that contains the files.
+         * Each file is stamped with its source session_id to support multi-session file tracking.
+         * When the same filename appears in a later execution, the newer version replaces the old.
          */
         const toolName = output.name;
         if (toolName === _enum.Constants.EXECUTE_CODE ||
@@ -752,14 +746,28 @@ class StandardGraph extends Graph {
                 artifact?.session_id != null &&
                 artifact.session_id !== '') {
                 /**
-                 * Files were generated - update session with the new session_id.
-                 * The new session_id is the one that contains these files.
+                 * Stamp each new file with its source session_id.
+                 * This enables files from different executions (parallel or sequential)
+                 * to be tracked and passed to subsequent calls.
                  */
+                const filesWithSession = newFiles.map((file) => ({
+                    ...file,
+                    session_id: artifact.session_id,
+                }));
                 const existingSession = this.sessions.get(_enum.Constants.EXECUTE_CODE);
                 const existingFiles = existingSession?.files ?? [];
+                /**
+                 * Merge files, preferring latest versions by name.
+                 * If a file with the same name exists, replace it with the new version.
+                 * This handles cases where files are edited/recreated in subsequent executions.
+                 */
+                const newFileNames = new Set(filesWithSession.map((f) => f.name));
+                const filteredExisting = existingFiles.filter((f) => !newFileNames.has(f.name));
                 this.sessions.set(_enum.Constants.EXECUTE_CODE, {
+                    /** Keep latest session_id for reference/fallback */
                     session_id: artifact.session_id,
-                    files: [...existingFiles, ...newFiles],
+                    /** Accumulated files with latest versions preferred */
+                    files: [...filteredExisting, ...filesWithSession],
                     lastUpdated: Date.now(),
                 });
             }
