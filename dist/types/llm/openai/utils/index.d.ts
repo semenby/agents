@@ -36,6 +36,8 @@ export interface ConvertMessagesOptions {
   includeReasoningDetails?: boolean;
   /** Convert reasoning_details to content blocks for Claude (requires content array format) */
   convertReasoningDetailsToContent?: boolean;
+  /** Force system role instead of developer for providers that don't support developer role */
+  forceSystemRole?: boolean;
 }
 export declare function _convertMessagesToOpenAIParams(
   messages: BaseMessage[],

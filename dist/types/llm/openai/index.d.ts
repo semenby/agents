@@ -60,9 +60,11 @@ export declare class CustomAzureOpenAIClient extends AzureOpenAIClient {
 /** @ts-expect-error We are intentionally overriding `getReasoningParams` */
 export declare class ChatOpenAI extends OriginalChatOpenAI<t.ChatOpenAICallOptions> {
   _lc_stream_delay?: number;
+  _forceSystemRole?: boolean;
   constructor(
     fields?: t.ChatOpenAICallOptions & {
       _lc_stream_delay?: number;
+      forceSystemRole?: boolean;
     } & t.OpenAIChatInput['modelKwargs']
   );
   get exposedClient(): CustomOpenAIClient;

@@ -197,14 +197,17 @@ export class CustomAzureOpenAIClient extends AzureOpenAIClient {
 /** @ts-expect-error We are intentionally overriding `getReasoningParams` */
 export class ChatOpenAI extends OriginalChatOpenAI<t.ChatOpenAICallOptions> {
   _lc_stream_delay?: number;
+  _forceSystemRole?: boolean;
 
   constructor(
     fields?: t.ChatOpenAICallOptions & {
       _lc_stream_delay?: number;
+      forceSystemRole?: boolean;
     } & t.OpenAIChatInput['modelKwargs']
   ) {
     super(fields);
     this._lc_stream_delay = fields?._lc_stream_delay;
+    this._forceSystemRole = fields?.forceSystemRole;
   }
 
   public get exposedClient(): CustomOpenAIClient {
@@ -321,7 +324,9 @@ export class ChatOpenAI extends OriginalChatOpenAI<t.ChatOpenAICallOptions> {
     runManager?: CallbackManagerForLLMRun
   ): AsyncGenerator<ChatGenerationChunk> {
     const messagesMapped: OpenAICompletionParam[] =
-      _convertMessagesToOpenAIParams(messages, this.model);
+      _convertMessagesToOpenAIParams(messages, this.model, {
+        forceSystemRole: this._forceSystemRole,
+      });
 
     const params = {
       ...this.invocationParams(options, {

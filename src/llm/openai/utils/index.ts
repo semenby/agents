@@ -294,6 +294,8 @@ export interface ConvertMessagesOptions {
   includeReasoningDetails?: boolean;
   /** Convert reasoning_details to content blocks for Claude (requires content array format) */
   convertReasoningDetailsToContent?: boolean;
+  /** Force system role instead of developer for providers that don't support developer role */
+  forceSystemRole?: boolean;
 }
 
 // Used in LangSmith, export is important here
@@ -305,7 +307,11 @@ export function _convertMessagesToOpenAIParams(
   // TODO: Function messages do not support array content, fix cast
   return messages.flatMap((message) => {
     let role = messageToOpenAIRole(message);
-    if (role === 'system' && isReasoningModel(model)) {
+    if (
+      role === 'system' &&
+      isReasoningModel(model) &&
+      options?.forceSystemRole !== true
+    ) {
       role = 'developer';
     }
 

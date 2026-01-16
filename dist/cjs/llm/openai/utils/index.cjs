@@ -168,7 +168,9 @@ function _convertMessagesToOpenAIParams(messages$1, model, options) {
     // TODO: Function messages do not support array content, fix cast
     return messages$1.flatMap((message) => {
         let role = messageToOpenAIRole(message);
-        if (role === 'system' && isReasoningModel(model)) {
+        if (role === 'system' &&
+            isReasoningModel(model) &&
+            options?.forceSystemRole !== true) {
             role = 'developer';
         }
         let hasAnthropicThinkingBlock = false;
